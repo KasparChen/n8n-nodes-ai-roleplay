@@ -5,6 +5,7 @@
 ## Overview
 
 A specialized n8n node for role-playing AI integration. This node allows you to create and customize character-based AI interactions through any compatible LLM API, inhereing the system prompt style from Silly Tarven.
+[screenshot](http://ipic-vanish-hk.oss-cn-hongkong.aliyuncs.com/ipic/2025-04-12-203735.png)
 
 ## Acknowledgment
 
