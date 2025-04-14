@@ -1,6 +1,7 @@
 {
   "name": "n8n-nodes-ai-roleplay",
   "version": "0.0.6",
+  "description": "Interact with AI models for roleplaying scenarios in n8n workflows",
   "keywords": [
     "n8n-community-node-package",
     "n8n",
