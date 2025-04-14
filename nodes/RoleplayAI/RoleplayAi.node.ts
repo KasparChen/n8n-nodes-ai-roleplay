@@ -348,6 +348,70 @@ export class RoleplayAi implements INodeType {
 				},
 			},
 			{
+				displayName: 'Include Chat Summary',
+				name: 'includeChatSummary',
+				type: 'boolean',
+				default: false,
+				description: 'Whether to include a chat summary after the first message in format {"system":"{chat_summary}"}',
+				displayOptions: {
+					show: {
+						operation: [
+							'chat',
+						],
+					},
+				},
+			},
+			{
+				displayName: 'Chat Summary',
+				name: 'chatSummary',
+				type: 'string',
+				typeOptions: {
+					rows: 3,
+				},
+				default: '',
+				description: 'Summary of the chat history that will be inserted after the first message. Can include conditional logic.',
+				displayOptions: {
+					show: {
+						includeChatSummary: [true],
+						operation: [
+							'chat',
+						],
+					},
+				},
+			},
+			{
+				displayName: 'Include Chat History',
+				name: 'includeChatHistory',
+				type: 'boolean',
+				default: false,
+				description: 'Whether to include chat history after the chat summary',
+				displayOptions: {
+					show: {
+						operation: [
+							'chat',
+						],
+					},
+				},
+			},
+			{
+				displayName: 'Chat History',
+				name: 'chatHistory',
+				type: 'json',
+				default: '[{"role": "user", "content": "Message content"}, {"role": "assistant", "content": "Reply content", "name": "Character name"}]',
+				typeOptions: {
+					rows: 5,
+				},
+				description: 'JSON formatted chat history with role (user/assistant), content (message text) and name (optional) fields',
+				displayOptions: {
+					show: {
+						includeChatHistory: [true],
+						operation: [
+							'chat',
+						],
+					},
+				},
+			},
+			{
 				displayName: 'Include Other Pre-Message',
 				name: 'includeOtherPreMsg',
 				type: 'boolean',
@@ -618,6 +682,12 @@ export class RoleplayAi implements INodeType {
 					const includeFormatGuidelines = this.getNodeParameter('includeFormatGuidelines', i) as boolean;
 					const formatGuidelines = includeFormatGuidelines ? this.getNodeParameter('formatGuidelines', i, '') as string : '';
 
+					const includeChatSummary = this.getNodeParameter('includeChatSummary', i) as boolean;
+					const chatSummary = includeChatSummary ? this.getNodeParameter('chatSummary', i, '') as string : '';
+
+					const includeChatHistory = this.getNodeParameter('includeChatHistory', i) as boolean;
+					const chatHistory = includeChatHistory ? JSON.parse(this.getNodeParameter('chatHistory', i, '[]') as string) : [];
+
 					const includeOtherPreMsg = this.getNodeParameter('includeOtherPreMsg', i) as boolean;
 					const otherPreMsg = includeOtherPreMsg ? this.getNodeParameter('otherPreMsg', i, '') as string : '';
 
@@ -687,6 +757,33 @@ export class RoleplayAi implements INodeType {
 						content: firstMessage,
 						name: characterName,
 					});
+
+					// Add chat summary if enabled - 在firstMessage之后以特定JSON格式插入
+					if (chatSummary) {
+						messages.push({
+							role: 'system',
+							content: `${chatSummary}`,
+						});
+					}
+
+					// Add chat history if enabled - 确保正确格式插入
+					if (includeChatHistory) {
+						try {
+							if (chatHistory && Array.isArray(chatHistory)) {
+								// 逐个检查并添加chat history的每个消息
+								for (const entry of chatHistory) {
+									if (entry && typeof entry === 'object' && 'role' in entry && 'content' in entry) {
+										messages.push(entry);
+									}
+								}
+							}
+						} catch (error) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Invalid chat history format: ${(error as Error).message}`,
+							);
+						}
+					}
 
 					// Add user message
 					messages.push({
