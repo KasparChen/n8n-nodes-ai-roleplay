@@ -365,31 +365,16 @@ export class RoleplayAi implements INodeType {
 				},
 			},
 			{
-				displayName: 'Include Chat History',
-				name: 'includeChatHistory',
-				type: 'boolean',
-				default: false,
-				description: 'Whether to include chat history after the chat summary',
-				displayOptions: {
-					show: {
-						operation: [
-							'chat',
-						],
-					},
-				},
-			},
-			{
 				displayName: 'Chat History',
 				name: 'chatHistory',
 				type: 'json',
-				default: '[{"role": "user", "content": "Message content"}, {"role": "assistant", "content": "Reply content", "name": "Character name"}]',
+				default: '[]',
 				typeOptions: {
 					rows: 5,
 				},
-				description: 'JSON formatted chat history with role (user/assistant), content (message text) and name (optional) fields',
+				description: 'JSON formatted chat history with role (user/assistant), content (message text) and name (optional) fields. Leave empty to omit.',
 				displayOptions: {
 					show: {
-						includeChatHistory: [true],
 						operation: [
 							'chat',
 						],
@@ -669,8 +654,18 @@ export class RoleplayAi implements INodeType {
 
 					const chatSummary = this.getNodeParameter('chatSummary', i, '') as string;
 
-					const includeChatHistory = this.getNodeParameter('includeChatHistory', i) as boolean;
-					const chatHistory = includeChatHistory ? JSON.parse(this.getNodeParameter('chatHistory', i, '[]') as string) : [];
+					const chatHistoryStr = this.getNodeParameter('chatHistory', i, '[]') as string;
+					let chatHistory = [];
+					try {
+						if (chatHistoryStr.trim()) {
+							chatHistory = JSON.parse(chatHistoryStr);
+						}
+					} catch (error) {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Invalid chat history format: ${(error as Error).message}`,
+						);
+					}
 
 					const includeOtherPreMsg = this.getNodeParameter('includeOtherPreMsg', i) as boolean;
 					const otherPreMsg = includeOtherPreMsg ? this.getNodeParameter('otherPreMsg', i, '') as string : '';
@@ -750,22 +745,13 @@ export class RoleplayAi implements INodeType {
 						});
 					}
 
-					// Add chat history if enabled - 确保正确格式插入
-					if (includeChatHistory) {
-						try {
-							if (chatHistory && Array.isArray(chatHistory)) {
-								// 逐个检查并添加chat history的每个消息
-								for (const entry of chatHistory) {
-									if (entry && typeof entry === 'object' && 'role' in entry && 'content' in entry) {
-										messages.push(entry);
-									}
-								}
+					// Add chat history if not empty
+					if (chatHistory && Array.isArray(chatHistory) && chatHistory.length > 0) {
+						// 逐个检查并添加chat history的每个消息
+						for (const entry of chatHistory) {
+							if (entry && typeof entry === 'object' && 'role' in entry && 'content' in entry) {
+								messages.push(entry);
 							}
-						} catch (error) {
-							throw new NodeOperationError(
-								this.getNode(),
-								`Invalid chat history format: ${(error as Error).message}`,
-							);
 						}
 					}
 
