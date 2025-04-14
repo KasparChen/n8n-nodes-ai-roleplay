@@ -348,20 +348,6 @@ export class RoleplayAi implements INodeType {
 				},
 			},
 			{
-				displayName: 'Include Chat Summary',
-				name: 'includeChatSummary',
-				type: 'boolean',
-				default: false,
-				description: 'Whether to include a chat summary after the first message in format {"system":"{chat_summary}"}',
-				displayOptions: {
-					show: {
-						operation: [
-							'chat',
-						],
-					},
-				},
-			},
-			{
 				displayName: 'Chat Summary',
 				name: 'chatSummary',
 				type: 'string',
@@ -369,10 +355,9 @@ export class RoleplayAi implements INodeType {
 					rows: 3,
 				},
 				default: '',
-				description: 'Summary of the chat history that will be inserted after the first message. Can include conditional logic.',
+				description: 'Summary of the chat history that will be inserted after the first message in format {"system":"{chat_summary}"}. Leave empty to omit.',
 				displayOptions: {
 					show: {
-						includeChatSummary: [true],
 						operation: [
 							'chat',
 						],
@@ -682,8 +667,7 @@ export class RoleplayAi implements INodeType {
 					const includeFormatGuidelines = this.getNodeParameter('includeFormatGuidelines', i) as boolean;
 					const formatGuidelines = includeFormatGuidelines ? this.getNodeParameter('formatGuidelines', i, '') as string : '';
 
-					const includeChatSummary = this.getNodeParameter('includeChatSummary', i) as boolean;
-					const chatSummary = includeChatSummary ? this.getNodeParameter('chatSummary', i, '') as string : '';
+					const chatSummary = this.getNodeParameter('chatSummary', i, '') as string;
 
 					const includeChatHistory = this.getNodeParameter('includeChatHistory', i) as boolean;
 					const chatHistory = includeChatHistory ? JSON.parse(this.getNodeParameter('chatHistory', i, '[]') as string) : [];
@@ -758,8 +742,8 @@ export class RoleplayAi implements INodeType {
 						name: characterName,
 					});
 
-					// Add chat summary if enabled - 在firstMessage之后以特定JSON格式插入
-					if (chatSummary) {
+					// Add chat summary if not empty (ignoring leading whitespace)
+					if (chatSummary.trimStart()) {
 						messages.push({
 							role: 'system',
 							content: `${chatSummary}`,
