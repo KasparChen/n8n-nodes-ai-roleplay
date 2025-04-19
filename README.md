@@ -15,7 +15,7 @@ This node is developed based on [n8n-nodes-grok](https://github.com/jvkassi/n8n-
 
 1. Navigate to Settings > Community Nodes in your n8n instance
 2. Select "Install"
-3. Enter `n8n-nodes-roleplay-ai`
+3. Enter `n8n-nodes-ai-roleplay`
 4. Complete installation and restart n8n
 
 ## Requirements

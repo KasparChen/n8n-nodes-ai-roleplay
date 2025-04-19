@@ -10,6 +10,9 @@ import type {
 	INodePropertyOptions,
 } from 'n8n-workflow';
 import { NodeOperationError, NodeConnectionType } from 'n8n-workflow';
+// 导入package.json获取版本号
+// @ts-ignore
+import { version } from '../../package.json';
 
 interface IRoleplayAIModel {
 	id: string;
@@ -45,7 +48,7 @@ interface IRoleplayAIResponse extends IDataObject {
 
 export class RoleplayAi implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Roleplay AI',
+		displayName: `Roleplay AI v${version}`,
 		name: 'roleplayAi',
 		icon: 'file:roleplay.svg',
 		group: ['transform'],
@@ -652,13 +655,49 @@ export class RoleplayAi implements INodeType {
 					const includeFormatGuidelines = this.getNodeParameter('includeFormatGuidelines', i) as boolean;
 					const formatGuidelines = includeFormatGuidelines ? this.getNodeParameter('formatGuidelines', i, '') as string : '';
 
-					const chatSummary = this.getNodeParameter('chatSummary', i, '') as string;
+					// 安全获取chatSummary，确保处理null或undefined
+					let chatSummary = '';
+					try {
+						const chatSummaryValue = this.getNodeParameter('chatSummary', i, '');
+						if (chatSummaryValue !== null && chatSummaryValue !== undefined) {
+							chatSummary = String(chatSummaryValue);
+						}
+					} catch (error) {
+						// 如果出错，使用默认空字符串
+					}
 
-					const chatHistoryStr = this.getNodeParameter('chatHistory', i, '[]') as string;
 					let chatHistory = [];
 					try {
-						if (chatHistoryStr.trim()) {
-							chatHistory = JSON.parse(chatHistoryStr);
+						// 获取原始值
+						const chatHistoryValue = this.getNodeParameter('chatHistory', i, '[]');
+
+						if (chatHistoryValue !== null && chatHistoryValue !== undefined) {
+							let processedValue;
+
+							// 如果已经是对象(包括数组)
+							if (typeof chatHistoryValue === 'object') {
+								processedValue = chatHistoryValue;
+							} else {
+								// 如果是字符串，尝试解析JSON
+								const chatHistoryStr = String(chatHistoryValue);
+								if (chatHistoryStr && chatHistoryStr.trim() !== '' && chatHistoryStr !== '[]') {
+									processedValue = JSON.parse(chatHistoryStr);
+								}
+							}
+
+							// 处理提取的值
+							if (processedValue) {
+								// 检查是否是[{submit_history:[...]}]格式
+								if (Array.isArray(processedValue) && processedValue.length > 0 &&
+									typeof processedValue[0] === 'object' && processedValue[0] !== null &&
+									'submit_history' in processedValue[0] && Array.isArray(processedValue[0].submit_history)) {
+									chatHistory = processedValue[0].submit_history;
+								}
+								// 检查是否是直接的对话数组格式
+								else if (Array.isArray(processedValue)) {
+									chatHistory = processedValue;
+								}
+							}
 						}
 					} catch (error) {
 						throw new NodeOperationError(
@@ -738,7 +777,7 @@ export class RoleplayAi implements INodeType {
 					});
 
 					// Add chat summary if not empty (ignoring leading whitespace)
-					if (chatSummary.trimStart()) {
+					if (chatSummary && typeof chatSummary === 'string' && chatSummary.trimStart()) {
 						messages.push({
 							role: 'system',
 							content: `${chatSummary}`,
