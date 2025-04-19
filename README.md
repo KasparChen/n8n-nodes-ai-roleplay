@@ -1,4 +1,4 @@
-# n8n-nodes-roleplay-ai
+# n8n-nodes-ai-roleplay
 
 [![n8n.io](https://img.shields.io/badge/powered%20by-n8n.io-green.svg?style=for-the-badge)](https://n8n.io)
 
