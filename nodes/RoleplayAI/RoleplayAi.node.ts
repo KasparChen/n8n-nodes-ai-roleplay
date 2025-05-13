@@ -463,6 +463,40 @@ export class RoleplayAi implements INodeType {
 				},
 			},
 			{
+				displayName: 'Extra Body',
+				name: 'includeExtraBody',
+				type: 'boolean',
+				default: false,
+				description: 'Whether to include extra body parameters for specific models',
+				displayOptions: {
+					show: {
+						operation: [
+							'chat',
+						],
+					},
+				},
+			},
+			{
+				displayName: 'Extra Body Content',
+				name: 'extraBodyContent',
+				type: 'string',
+				typeOptions: {
+					rows: 3,
+				},
+				default: '"enable_thinking": true,\n"thinking_budget": 50',
+				description: 'Speciallize for Qwen3-like models with extra settings, only enter content inside { }. Note: Use true/false (lowercase) for boolean values.',
+				displayOptions: {
+					show: {
+						operation: [
+							'chat',
+						],
+						includeExtraBody: [
+							true,
+						],
+					},
+				},
+			},
+			{
 				displayName: 'Additional Fields',
 				name: 'additionalFields',
 				type: 'collection',
@@ -712,6 +746,8 @@ export class RoleplayAi implements INodeType {
 					const message = this.getNodeParameter('message', i) as string;
 					const includeRawOutput = this.getNodeParameter('includeRawOutput', i) as boolean;
 					const temperature = this.getNodeParameter('temperature', i) as number;
+					const includeExtraBody = this.getNodeParameter('includeExtraBody', i) as boolean;
+					const extraBodyContent = this.getNodeParameter('extraBodyContent', i) as string;
 					const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
 					// Construct messages array for the API request
@@ -806,6 +842,23 @@ export class RoleplayAi implements INodeType {
 						temperature,
 						...additionalFields,
 					};
+
+					// 如果启用了 Extra Body，添加到请求体中
+					if (includeExtraBody && extraBodyContent) {
+						try {
+							// 将 Python 风格的布尔值转换为 JSON 风格
+							const pythonToJsonContent = extraBodyContent
+								.replace(/\bTrue\b/g, 'true')
+								.replace(/\bFalse\b/g, 'false');
+							const extraBodyObj = JSON.parse(`{${pythonToJsonContent}}`);
+							Object.assign(requestBody, { extra_body: extraBodyObj });
+						} catch (error) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Invalid Extra Body content format: ${(error as Error).message}. Please use true/false (lowercase) for boolean values.`,
+							);
+						}
+					}
 
 					// 创建请求头
 					const headers: IDataObject = {

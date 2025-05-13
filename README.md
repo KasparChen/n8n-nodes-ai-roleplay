@@ -46,12 +46,14 @@ This node is developed based on [n8n-nodes-grok](https://github.com/jvkassi/n8n-
    - **Format Guidelines**: Formatting instructions for responses
    - **Model Preset**: Model behavior instructions
    - **Other Pre-Message**: Additional context or instructions
+   - **Extra Body**: Special parameters for specific models (e.g., Qwen3)
 
 ## Features
 
 - **Service Flexibility**: Compatible with any OpenAI-compliant API
 - **Customizable Characters**: Detailed character creation options
 - **Raw Output Support**: Option to include full conversation history in structured format(for memory storage or other data manipulation)
+- **Model-Specific Features**: Support for model-specific parameters (e.g., Qwen3's thinking mode)
 
 ## Usage Examples
 
@@ -72,6 +74,34 @@ Scenario: A virtual medical consultation environment
 Format Guidelines: Always structure responses with "Assessment:" and "Recommendations:" sections
 First Message: "Good day. I'm Dr. Watson. Please describe your symptoms in detail."
 ```
+
+### Qwen3 Model Configuration
+
+```
+Character Name: AI Assistant
+Character Description: A helpful AI assistant
+First Message: "Hello! How can I assist you today?"
+Extra Body: {
+    "enable_thinking": true,
+    "thinking_budget": 50
+}
+```
+
+## Changelog
+
+### v0.1.5 (2024-05-13)
+- Added support for Qwen3 model's extra body parameters
+- Added automatic conversion between Python and JSON boolean values
+- Improved error messages for extra body configuration
+
+### v0.1.4 (2024-05-13)
+- Added Extra Body feature for model-specific parameters
+- Added support for custom model settings
+
+### v0.1.3 (2024-05-12)
+- Initial release
+- Basic roleplay functionality
+- Support for multiple AI providers
 
 ## Support
 
