@@ -449,6 +449,20 @@ export class RoleplayAi implements INodeType {
 				},
 			},
 			{
+				displayName: 'Include Request Log',
+				name: 'includeRequestLog',
+				type: 'boolean',
+				default: false,
+				description: 'Whether to include request configuration in the output',
+				displayOptions: {
+					show: {
+						operation: [
+							'chat',
+						],
+					},
+				},
+			},
+			{
 				displayName: 'Temperature',
 				name: 'temperature',
 				type: 'number',
@@ -745,6 +759,7 @@ export class RoleplayAi implements INodeType {
 
 					const message = this.getNodeParameter('message', i) as string;
 					const includeRawOutput = this.getNodeParameter('includeRawOutput', i) as boolean;
+					const includeRequestLog = this.getNodeParameter('includeRequestLog', i) as boolean;
 					const temperature = this.getNodeParameter('temperature', i) as number;
 					const includeExtraBody = this.getNodeParameter('includeExtraBody', i) as boolean;
 					const extraBodyContent = this.getNodeParameter('extraBodyContent', i) as string;
@@ -836,7 +851,8 @@ export class RoleplayAi implements INodeType {
 						content: message,
 					});
 
-					const requestBody = {
+					// 构建基础请求体
+					const baseRequestBody = {
 						model: modelId,
 						messages,
 						temperature,
@@ -850,74 +866,190 @@ export class RoleplayAi implements INodeType {
 							const pythonToJsonContent = extraBodyContent
 								.replace(/\bTrue\b/g, 'true')
 								.replace(/\bFalse\b/g, 'false');
-							const extraBodyObj = JSON.parse(`{${pythonToJsonContent}}`);
-							Object.assign(requestBody, { extra_body: extraBodyObj });
+
+							// 解析用户输入的参数
+							const extraParams = JSON.parse(`{${pythonToJsonContent}}`);
+
+							// 创建最终的请求体，将参数作为顶级参数
+							const requestBody = {
+								...baseRequestBody,
+								...extraParams,  // 直接展开参数到顶级
+							};
+
+							// 输出最终发送给 LLM 的内容
+							console.log('Final request body:', JSON.stringify(requestBody, null, 2));
+
+							// 创建请求头
+							const headers: IDataObject = {
+								Authorization: `Bearer ${credentials.apiKey}`,
+								'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
+								'X-Title': 'n8n Roleplay AI Node',
+								'Content-Type': 'application/json',
+							};
+
+							// 为Anthropic添加特定的header
+							if (providerType === 'anthropic') {
+								headers['anthropic-version'] = '2023-06-01';
+								headers['x-api-key'] = credentials.apiKey;
+								delete headers.Authorization;
+							}
+
+							const options: IHttpRequestOptions = {
+								url: `${baseUrl}/chat/completions`,
+								headers,
+								method: 'POST' as IHttpRequestMethods,
+								body: requestBody,
+								json: true,
+							};
+
+							const response = await this.helpers.request(options);
+
+							if (!response?.choices?.[0]?.message?.content) {
+								throw new NodeOperationError(
+									this.getNode(),
+									'Invalid response format from AI API',
+								);
+							}
+
+							const typedResponse = response as IRoleplayAIResponse;
+							const messageContent = typedResponse.choices[0].message.content.trim();
+
+							// Prepare output
+							const output: IDataObject = {
+								response: messageContent,
+							};
+
+							// Add raw data if enabled
+							if (includeRawOutput) {
+								const rawMessages = [
+									...messages,
+									{
+										role: 'assistant',
+										content: messageContent,
+										name: characterName,
+									},
+								];
+
+								output.raw_data = rawMessages;
+							}
+
+							// Add request log if enabled
+							if (includeRequestLog) {
+								const logData = {
+									method: 'POST',
+									headers: {
+										Authorization: `Bearer ${credentials.apiKey}`,
+										'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
+										'X-Title': 'n8n Roleplay AI Node',
+										'Content-Type': 'application/json',
+										...(providerType === 'anthropic' ? {
+											'anthropic-version': '2023-06-01',
+											'x-api-key': credentials.apiKey,
+										} : {}),
+									},
+									body: {
+										...requestBody,
+										messages: '[...]', // 使用省略号代替实际消息内容
+									},
+								};
+								output.log = logData;
+							}
+
+							returnData.push({
+								json: output,
+								pairedItem: { item: i },
+							});
 						} catch (error) {
 							throw new NodeOperationError(
 								this.getNode(),
 								`Invalid Extra Body content format: ${(error as Error).message}. Please use true/false (lowercase) for boolean values.`,
 							);
 						}
+					} else {
+						// 如果没有启用 Extra Body，使用基础请求体
+						const requestBody = baseRequestBody;
+
+						// 创建请求头
+						const headers: IDataObject = {
+							Authorization: `Bearer ${credentials.apiKey}`,
+							'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
+							'X-Title': 'n8n Roleplay AI Node',
+							'Content-Type': 'application/json',
+						};
+
+						// 为Anthropic添加特定的header
+						if (providerType === 'anthropic') {
+							headers['anthropic-version'] = '2023-06-01';
+							headers['x-api-key'] = credentials.apiKey;
+							delete headers.Authorization;
+						}
+
+						const options: IHttpRequestOptions = {
+							url: `${baseUrl}/chat/completions`,
+							headers,
+							method: 'POST' as IHttpRequestMethods,
+							body: requestBody,
+							json: true,
+						};
+
+						const response = await this.helpers.request(options);
+
+						if (!response?.choices?.[0]?.message?.content) {
+							throw new NodeOperationError(
+								this.getNode(),
+								'Invalid response format from AI API',
+							);
+						}
+
+						const typedResponse = response as IRoleplayAIResponse;
+						const messageContent = typedResponse.choices[0].message.content.trim();
+
+						// Prepare output
+						const output: IDataObject = {
+							response: messageContent,
+						};
+
+						// Add raw data if enabled
+						if (includeRawOutput) {
+							const rawMessages = [
+								...messages,
+								{
+									role: 'assistant',
+									content: messageContent,
+									name: characterName,
+								},
+							];
+
+							output.raw_data = rawMessages;
+						}
+
+						// Add request log if enabled
+						if (includeRequestLog) {
+							const logData = {
+								method: 'POST',
+								headers: {
+									Authorization: `Bearer ${credentials.apiKey}`,
+									'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
+									'X-Title': 'n8n Roleplay AI Node',
+									'Content-Type': 'application/json',
+									...(providerType === 'anthropic' ? {
+										'anthropic-version': '2023-06-01',
+										'x-api-key': credentials.apiKey,
+									} : {}),
+								},
+								body: {
+									...requestBody,
+									messages: '[...]', // 使用省略号代替实际消息内容
+								},
+							};
+							output.log = logData;
+						}
+
+						returnData.push({
+							json: output,
+							pairedItem: { item: i },
+						});
 					}
-
-					// 创建请求头
-					const headers: IDataObject = {
-						Authorization: `Bearer ${credentials.apiKey}`,
-						'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
-						'X-Title': 'n8n Roleplay AI Node',
-						'Content-Type': 'application/json',
-					};
-
-					// 为Anthropic添加特定的header
-					if (providerType === 'anthropic') {
-						headers['anthropic-version'] = '2023-06-01';
-						headers['x-api-key'] = credentials.apiKey;
-						delete headers.Authorization;
-					}
-
-					const options: IHttpRequestOptions = {
-						url: `${baseUrl}/chat/completions`,
-						headers,
-						method: 'POST' as IHttpRequestMethods,
-						body: requestBody,
-						json: true,
-					};
-
-					const response = await this.helpers.request(options);
-
-					if (!response?.choices?.[0]?.message?.content) {
-						throw new NodeOperationError(
-							this.getNode(),
-							'Invalid response format from AI API',
-						);
-					}
-
-					const typedResponse = response as IRoleplayAIResponse;
-					const messageContent = typedResponse.choices[0].message.content.trim();
-
-					// Prepare output
-					const output: IDataObject = {
-						response: messageContent,
-					};
-
-					// Add raw data if enabled
-					if (includeRawOutput) {
-						const rawMessages = [
-							...messages,
-							{
-								role: 'assistant',
-								content: messageContent,
-								name: characterName,
-							},
-						];
-
-						output.raw_data = rawMessages;
-					}
-
-					returnData.push({
-						json: output,
-						pairedItem: { item: i },
-					});
 				} else if (operation === 'custom') {
 					// 对于custom操作，我们只需输出凭证信息供后续节点使用
 					returnData.push({
