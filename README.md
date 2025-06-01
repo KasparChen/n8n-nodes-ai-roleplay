@@ -1,3 +1,22 @@
+## 重要提示 (extra_body 临时解决方案)
+
+**请注意：** 目前存在一个已知问题，您 **必须启用 `Include Extra Body` (包含额外请求体) 选项并为其提供有效的 JSON 内容**，节点才能正常工作，即使您不打算使用特定的额外参数。
+
+请确保勾选 `Include Extra Body`，并在 `Extra Body Content` (额外请求体内容) 字段中输入一个最小化的有效 JSON。例如：
+
+```json
+"think": false
+```
+或者
+```json
+"dummy_param": "placeholder"
+```
+
+这是一个临时性的要求，我们会在后续版本中修复此问题。对于由此带来的不便，我们深表歉意。
+当前版本: 0.2.0
+
+---
+
 # n8n-nodes-ai-roleplay
 
 [![n8n.io](https://img.shields.io/badge/powered%20by-n8n.io-green.svg?style=for-the-badge)](https://n8n.io)

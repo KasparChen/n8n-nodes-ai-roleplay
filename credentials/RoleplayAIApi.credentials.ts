@@ -42,6 +42,11 @@ export class RoleplayAIApi implements ICredentialType {
 					value: 'anthropic',
 					description: 'Anthropic Claude API',
 				},
+				{
+					name: 'Ollama',
+					value: 'ollama',
+					description: 'Ollama API',
+				},
 			],
 			default: 'openai',
 			description: 'The type of API provider. Note: This only affects which models are available in the model list and how the API request is formatted. It does not change any functionality.',

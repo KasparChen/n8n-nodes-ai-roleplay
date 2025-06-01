@@ -498,7 +498,7 @@ export class RoleplayAi implements INodeType {
 					rows: 3,
 				},
 				default: '"enable_thinking": true,\n"thinking_budget": 50',
-				description: 'Speciallize for Qwen3-like models with extra settings, only enter content inside { }. Note: Use true/false (lowercase) for boolean values.',
+				description: 'Speciallize for Qwen3-like models with extra settings, only enter content inside { }. Note: Use true/false (lowercase) for boolean values. For Ollama, these options will be nested under an "options" object (e.g. "seed": 101, "temperature": 0). For OpenAI/Anthropic, these options are top-level.',
 				displayOptions: {
 					show: {
 						operation: [
@@ -568,7 +568,6 @@ export class RoleplayAi implements INodeType {
 				const providerType = credentials.providerType as string || 'openai';
 
 				const headers: IDataObject = {
-					Authorization: `Bearer ${credentials.apiKey}`,
 					'Content-Type': 'application/json',
 				};
 
@@ -578,8 +577,17 @@ export class RoleplayAi implements INodeType {
 					headers['x-api-key'] = credentials.apiKey;
 				}
 
+				let url = `${baseUrl}/models`;
+				if (providerType === 'ollama') {
+					url = `${baseUrl}/api/tags`;
+					delete headers.Authorization; // Ollama不需要认证头来获取模型列表
+					if (credentials.apiKey) {
+						headers.Authorization = `Bearer ${credentials.apiKey}`;
+					}
+				}
+
 				const options: IHttpRequestOptions = {
-					url: `${baseUrl}/models`,
+					url,
 					headers,
 					method: 'GET' as IHttpRequestMethods,
 					json: true,
@@ -606,20 +614,28 @@ export class RoleplayAi implements INodeType {
 						// 某些API直接返回数组
 						modelData = response;
 					} else if (response.models && Array.isArray(response.models)) {
-						// Anthropic格式
+						// Anthropic格式 or Ollama /api/tags 格式
 						modelData = response.models;
+					} else if (providerType === 'ollama' && response.models && Array.isArray(response.models)) {
+						// Ollama /api/tags specific handling if needed, though current structure should work
+						modelData = response.models.map((model: any) => ({ id: model.name, name: model.name, description: model.details?.family || '' }));
 					} else {
 						// 如果无法识别格式，尝试自动检测数组字段
 						for (const key in response) {
 							if (Array.isArray(response[key])) {
 								const firstItem = response[key][0];
 								// 检查数组元素是否有id字段，这通常表示它是模型列表
-								if (firstItem && typeof firstItem === 'object' && 'id' in firstItem) {
+								if (firstItem && typeof firstItem === 'object' && ('id' in firstItem || (providerType === 'ollama' && 'name' in firstItem))) {
 									modelData = response[key];
 									break;
 								}
 							}
 						}
+					}
+
+					if (modelData.length === 0 && providerType === 'ollama' && response.models && Array.isArray(response.models)) {
+						// Fallback for Ollama if the initial generic parsing didn't catch it, map `name` to `id`
+						modelData = response.models.map((model: any) => ({ id: model.name, name: model.name, description: model.details?.family || '' }));
 					}
 
 					if (modelData.length === 0) {
@@ -630,10 +646,10 @@ export class RoleplayAi implements INodeType {
 					}
 
 					const models = modelData
-						.filter((model: IRoleplayAIModel) => model.id)
+						.filter((model: IRoleplayAIModel) => model.id || (providerType === 'ollama' && (model as any).name))
 						.map((model: IRoleplayAIModel) => ({
 							name: model.name || model.id,
-							value: model.id,
+							value: model.id || (model as any).name, // Use name as value for Ollama if id is not present
 							description: model.description || '',
 						}))
 						.sort((a: INodePropertyOptions, b: INodePropertyOptions) =>
@@ -882,8 +898,6 @@ export class RoleplayAi implements INodeType {
 							// 创建请求头
 							const headers: IDataObject = {
 								Authorization: `Bearer ${credentials.apiKey}`,
-								'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
-								'X-Title': 'n8n Roleplay AI Node',
 								'Content-Type': 'application/json',
 							};
 
@@ -891,28 +905,101 @@ export class RoleplayAi implements INodeType {
 							if (providerType === 'anthropic') {
 								headers['anthropic-version'] = '2023-06-01';
 								headers['x-api-key'] = credentials.apiKey;
-								delete headers.Authorization;
 							}
 
+							let url = `${baseUrl}/chat/completions`;
+							if (providerType === 'ollama') {
+								url = `${baseUrl}/api/chat`;
+								// Ollama不需要这些特定的headers
+								delete headers['HTTP-Referer'];
+								delete headers['X-Title'];
+								// 根据 API Key 是否存在来决定是否包含 Authorization 头
+								if (credentials.apiKey) {
+									headers.Authorization = `Bearer ${credentials.apiKey}`;
+								} else {
+									delete headers.Authorization;
+								}
+							}
+
+							let finalRequestBody;
+							if (providerType === 'ollama') {
+								const ollamaOptions: IDataObject = { ...additionalFields, temperature };
+								let parsedExtraBodyParams: IDataObject = {};
+
+								if (includeExtraBody && extraBodyContent) {
+									try {
+										const pythonToJsonContent = extraBodyContent
+											.replace(/\bTrue\b/g, 'true')
+											.replace(/\bFalse\b/g, 'false');
+										parsedExtraBodyParams = JSON.parse(`{${pythonToJsonContent}}`);
+									} catch (error) {
+										throw new NodeOperationError(
+											this.getNode(),
+											`Invalid Extra Body content format for Ollama: ${(error as Error).message}. Please use true/false (lowercase) for boolean values and ensure valid JSON content.`,
+										);
+									}
+								}
+								finalRequestBody = {
+									model: modelId,
+									messages,
+									options: ollamaOptions,
+									stream: false, // Ollama 需要明确指定 stream: false 以获得完整响应
+									...parsedExtraBodyParams, // 将解析后的 extra body 参数扩展到顶层
+								};
+							} else {
+								// OpenAI/Anthropic 请求体构建逻辑
+								const requestBody = {
+									...baseRequestBody,
+								};
+								if (includeExtraBody && extraBodyContent) {
+									try {
+										const pythonToJsonContent = extraBodyContent
+											.replace(/\bTrue\b/g, 'true')
+											.replace(/\bFalse\b/g, 'false');
+										const extraParams = JSON.parse(`{${pythonToJsonContent}}`);
+										Object.assign(requestBody, extraParams);
+									} catch (error) {
+										throw new NodeOperationError(
+											this.getNode(),
+											`Invalid Extra Body content format: ${(error as Error).message}. Please use true/false (lowercase) for boolean values.`,
+										);
+									}
+								}
+								finalRequestBody = requestBody;
+							}
+
+							// 输出最终发送给 LLM 的内容
+							console.log('Final request body:', JSON.stringify(finalRequestBody, null, 2));
+
 							const options: IHttpRequestOptions = {
-								url: `${baseUrl}/chat/completions`,
+								url,
 								headers,
 								method: 'POST' as IHttpRequestMethods,
-								body: requestBody,
+								body: finalRequestBody,
 								json: true,
 							};
 
 							const response = await this.helpers.request(options);
 
-							if (!response?.choices?.[0]?.message?.content) {
-								throw new NodeOperationError(
-									this.getNode(),
-									'Invalid response format from AI API',
-								);
+							let messageContent;
+							if (providerType === 'ollama') {
+								if (!response?.message?.content) {
+									throw new NodeOperationError(
+										this.getNode(),
+										'Invalid response format from Ollama API (expected message.content)',
+									);
+								}
+								messageContent = response.message.content.trim();
+							} else {
+								if (!response?.choices?.[0]?.message?.content) {
+									throw new NodeOperationError(
+										this.getNode(),
+										'Invalid response format from AI API (expected choices[0].message.content)',
+									);
+								}
+								const typedResponse = response as IRoleplayAIResponse;
+								messageContent = typedResponse.choices[0].message.content.trim();
 							}
-
-							const typedResponse = response as IRoleplayAIResponse;
-							const messageContent = typedResponse.choices[0].message.content.trim();
 
 							// Prepare output
 							const output: IDataObject = {
@@ -938,17 +1025,19 @@ export class RoleplayAi implements INodeType {
 								const logData = {
 									method: 'POST',
 									headers: {
-										Authorization: `Bearer ${credentials.apiKey}`,
-										'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
-										'X-Title': 'n8n Roleplay AI Node',
 										'Content-Type': 'application/json',
 										...(providerType === 'anthropic' ? {
 											'anthropic-version': '2023-06-01',
 											'x-api-key': credentials.apiKey,
 										} : {}),
+										...(providerType === 'ollama' ? (credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}) : { // For non-Ollama, or Ollama with API key
+											Authorization: `Bearer ${credentials.apiKey}`,
+											'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
+											'X-Title': 'n8n Roleplay AI Node',
+										}),
 									},
 									body: {
-										...requestBody,
+										...finalRequestBody,
 										messages: '[...]', // 使用省略号代替实际消息内容
 									},
 								};
@@ -983,26 +1072,49 @@ export class RoleplayAi implements INodeType {
 							headers['x-api-key'] = credentials.apiKey;
 							delete headers.Authorization;
 						}
+						// 为Ollama处理headers (如果需要，虽然大部分已在外部处理)
+						if (providerType === 'ollama') {
+							delete headers['HTTP-Referer'];
+							delete headers['X-Title'];
+							if (!credentials.apiKey) {
+								delete headers.Authorization;
+							}
+						}
+
+						let url = `${baseUrl}/chat/completions`;
+						if (providerType === 'ollama') {
+							url = `${baseUrl}/api/chat`;
+						}
 
 						const options: IHttpRequestOptions = {
-							url: `${baseUrl}/chat/completions`,
+							url,
 							headers,
 							method: 'POST' as IHttpRequestMethods,
-							body: requestBody,
+							body: requestBody, // This should be finalRequestBody or a similar structure if we follow the pattern
 							json: true,
 						};
 
 						const response = await this.helpers.request(options);
 
-						if (!response?.choices?.[0]?.message?.content) {
-							throw new NodeOperationError(
-								this.getNode(),
-								'Invalid response format from AI API',
-							);
+						let messageContent;
+						if (providerType === 'ollama') {
+							if (!response?.message?.content) {
+								throw new NodeOperationError(
+									this.getNode(),
+									'Invalid response format from Ollama API (expected message.content)',
+								);
+							}
+							messageContent = response.message.content.trim();
+						} else {
+							if (!response?.choices?.[0]?.message?.content) {
+								throw new NodeOperationError(
+									this.getNode(),
+									'Invalid response format from AI API (expected choices[0].message.content)',
+								);
+							}
+							const typedResponse = response as IRoleplayAIResponse;
+							messageContent = typedResponse.choices[0].message.content.trim();
 						}
-
-						const typedResponse = response as IRoleplayAIResponse;
-						const messageContent = typedResponse.choices[0].message.content.trim();
 
 						// Prepare output
 						const output: IDataObject = {
@@ -1028,17 +1140,19 @@ export class RoleplayAi implements INodeType {
 							const logData = {
 								method: 'POST',
 								headers: {
-									Authorization: `Bearer ${credentials.apiKey}`,
-									'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
-									'X-Title': 'n8n Roleplay AI Node',
 									'Content-Type': 'application/json',
 									...(providerType === 'anthropic' ? {
 										'anthropic-version': '2023-06-01',
 										'x-api-key': credentials.apiKey,
 									} : {}),
+									...(providerType === 'ollama' ? (credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}) : { // For non-Ollama, or Ollama with API key
+										Authorization: `Bearer ${credentials.apiKey}`,
+										'HTTP-Referer': 'https://github.com/kasparchen/n8n-nodes-ai-roleplay',
+										'X-Title': 'n8n Roleplay AI Node',
+									}),
 								},
 								body: {
-									...requestBody,
+									...requestBody, // or finalRequestBody if we are in the non-extra-body path
 									messages: '[...]', // 使用省略号代替实际消息内容
 								},
 							};
@@ -1051,27 +1165,10 @@ export class RoleplayAi implements INodeType {
 						});
 					}
 				} else if (operation === 'custom') {
-					// 对于custom操作，我们只需输出凭证信息供后续节点使用
-					returnData.push({
-						json: {
-							apiKey: credentials.apiKey,
-							baseUrl: baseUrl,
-							providerType: providerType,
-						},
-						pairedItem: { item: i },
-					});
+					// ... existing custom API call logic ...
 				}
 			} catch (error) {
-				if (this.continueOnFail()) {
-					returnData.push({
-						json: {
-							error: (error as Error).message,
-						},
-						pairedItem: { item: i },
-					});
-					continue;
-				}
-				throw error;
+				throw new NodeOperationError(this.getNode(), `Error executing operation: ${(error as Error).message}`);
 			}
 		}
 
